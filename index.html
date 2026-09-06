@@ -273,6 +273,27 @@
   @media (prefers-reduced-motion:reduce){
     *{animation:none !important; transition:none !important;}
   }
+
+  /* ---------- V2 library controls ---------- */
+  .quick-filters{display:flex;gap:8px;flex-wrap:wrap;max-width:1400px;margin:10px auto 0;padding:0 24px;}
+  .quick-filter{padding:7px 12px;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-size:.8rem;color:var(--muted);}
+  .quick-filter.active{border-color:var(--accent2);color:var(--accent2);background:var(--card);}
+  .card-tools{display:flex;gap:6px;margin-top:9px;align-items:center;}
+  .tool-btn{width:30px;height:30px;border:1px solid var(--border);border-radius:50%;background:var(--surface);display:inline-flex;align-items:center;justify-content:center;font-size:.9rem;}
+  .tool-btn.active{color:var(--accent);border-color:var(--accent);}
+  .progress-track{height:3px;background:var(--border);position:absolute;left:0;right:0;bottom:0;z-index:2;}
+  .progress-fill{height:100%;background:var(--accent2);width:0;}
+  .tag-list{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;}
+  .tag{font-size:.68rem;padding:2px 7px;border-radius:999px;background:var(--surface);border:1px solid var(--border);color:var(--muted);}
+  .stat-strip{max-width:1400px;margin:14px auto 0;padding:0 24px;display:flex;gap:10px;flex-wrap:wrap;}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:7px 11px;font-size:.78rem;color:var(--muted);}
+  .stat b{color:var(--text);margin-inline-start:4px;}
+  .player-progress{height:5px;background:var(--border);margin:0 22px 8px;border-radius:99px;overflow:hidden;}
+  .player-progress-fill{height:100%;width:0;background:var(--accent2);transition:width .2s linear;}
+  .player-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+  .notes{width:100%;min-height:90px;resize:vertical;padding:10px 12px;border-radius:9px;background:var(--card);border:1px solid var(--border);font-size:.9rem;}
+  .import-input{display:none;}
+  @media(max-width:640px){.quick-filters,.stat-strip{padding:0 16px}.stat-strip{overflow:auto;flex-wrap:nowrap}.quick-filters{overflow:auto;flex-wrap:nowrap}.quick-filter{flex:0 0 auto}.player-actions .btn{flex:1;justify-content:center}}
 </style>
 </head>
 <body>
@@ -294,6 +315,9 @@
       <button class="icon-btn" id="settingsBtn" title="الاتصال بـ GitHub" aria-label="إعدادات GitHub">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z"/></svg>
       </button>
+      <button class="icon-btn" id="exportBtn" title="تصدير نسخة احتياطية" aria-label="تصدير">⇩</button>
+      <button class="icon-btn" id="importBtn" title="استيراد نسخة احتياطية" aria-label="استيراد">⇧</button>
+      <input type="file" id="importFile" class="import-input" accept="application/json,.json">
       <button class="btn btn-primary" id="addVideoBtn">+ إضافة فيديو</button>
     </div>
   </div>
@@ -307,8 +331,11 @@
     <option value="newest">الأحدث أولاً</option>
     <option value="oldest">الأقدم أولاً</option>
     <option value="alpha">أبجدياً</option>
+    <option value="progress">حسب التقدم</option>
   </select>
 </div>
+<div class="quick-filters" id="quickFilters"></div>
+<div class="stat-strip" id="statStrip"></div>
 
 <h2 class="section-title" id="gridTitle">كل الفيديوهات</h2>
 <div class="grid" id="videoGrid"></div>
@@ -327,9 +354,15 @@
       <button class="modal-close" data-close="playerOverlay" aria-label="إغلاق">✕</button>
     </div>
     <div class="player-frame" id="playerFrame"></div>
+    <div class="player-progress"><div class="player-progress-fill" id="playerProgressFill"></div></div>
     <div class="player-info">
       <h2 id="playerVideoTitle"></h2>
       <p id="playerVideoMeta"></p>
+      <div class="player-actions">
+        <button class="btn btn-ghost" id="playerFavoriteBtn">☆ المفضلة</button>
+        <button class="btn btn-ghost" id="playerLaterBtn">🕒 لاحقاً</button>
+        <button class="btn btn-ghost" id="playerYoutubeBtn">↗ فتح في YouTube</button>
+      </div>
     </div>
   </div>
 </div>
@@ -370,6 +403,18 @@
           <input type="text" id="categoryInput" list="categoryList" placeholder="مثال: تعليمي">
           <datalist id="categoryList"></datalist>
         </div>
+      </div>
+      <div class="field">
+        <label for="tagsInput">الوسوم</label>
+        <input type="text" id="tagsInput" placeholder="مثال: طب، فارما، مراجعة (افصل بينها بفواصل)">
+      </div>
+      <div class="field">
+        <label for="notesInput">ملاحظات شخصية</label>
+        <textarea class="notes" id="notesInput" placeholder="ملاحظاتك حول هذا الفيديو…"></textarea>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="favoriteInput"><label for="favoriteInput">إضافة إلى المفضلة</label>
+        <input type="checkbox" id="watchLaterInput"><label for="watchLaterInput">للمشاهدة لاحقاً</label>
       </div>
 
       <div class="modal-actions">
@@ -437,6 +482,7 @@
 
 <div id="toastHost"></div>
 
+<script src="https://www.youtube.com/iframe_api"></script>
 <script>
 (function(){
   "use strict";
@@ -474,16 +520,10 @@
 
   /* ---------------- state ---------------- */
   var state = {
-    videos: [],
-    sha: null,
-    gh: null,          // {owner, repo, branch, path}
-    token: null,
-    connected: false,
-    search: '',
-    category: 'الكل',
-    sort: 'newest',
-    editingId: null,
-    metaFetched: null
+    videos: [], sha: null, gh: null, token: null, connected: false,
+    search: '', category: 'الكل', sort: 'newest', quickFilter: 'all',
+    editingId: null, metaFetched: null, player: null, playingId: null,
+    saveQueue: Promise.resolve(), saveBusy: false
   };
 
   var CONFIG_KEY = 'ytlib_gh_config';
@@ -495,6 +535,21 @@
   var SAMPLE_VIDEOS = [
     { id: uid(), videoId: 'dQw4w9WgXcQ', title: 'فيديو تجريبي — استبدله بمكتبتك', channel: 'عرض تجريبي', category: 'تجريبي', thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg', addedAt: new Date().toISOString(), demo: true }
   ];
+
+  function normalizeVideo(v){
+    v=v||{};
+    return { id:v.id||uid(), videoId:v.videoId||'', title:v.title||'', channel:v.channel||'', category:v.category||'', thumbnail:v.thumbnail||('https://i.ytimg.com/vi/'+(v.videoId||'')+'/hqdefault.jpg'), addedAt:v.addedAt||new Date().toISOString(), tags:Array.isArray(v.tags)?v.tags:[], notes:v.notes||'', favorite:!!v.favorite, watchLater:!!v.watchLater, progress:Number(v.progress)||0, duration:Number(v.duration)||0, lastWatchedAt:v.lastWatchedAt||null };
+  }
+  function normalizeVideos(list){
+    var seen={}; return (Array.isArray(list)?list:[]).map(normalizeVideo).filter(function(v){
+      if(!v.videoId || seen[v.videoId]) return false; seen[v.videoId]=true; return true;
+    });
+  }
+  function localProgressKey(id){return 'ytlib_progress_'+id;}
+  function getProgress(v){ var p=Number(v.progress)||0; try{ var x=Number(localStorage.getItem(localProgressKey(v.id))); if(isFinite(x)) p=x; }catch(e){} return Math.max(0,Math.min(1,p)); }
+  function setProgress(v,p,duration){ v.progress=Math.max(0,Math.min(1,Number(p)||0)); if(duration) v.duration=duration; v.lastWatchedAt=new Date().toISOString(); try{localStorage.setItem(localProgressKey(v.id),String(v.progress));}catch(e){} }
+  function tagsFromInput(value){return String(value||'').split(',').map(function(x){return x.trim();}).filter(Boolean).slice(0,20).filter(function(x,i,a){return a.indexOf(x)===i;});}
+  function formatPct(p){return Math.round(Math.max(0,Math.min(1,p))*100)+'%';}
 
   /* ---------------- persistence ---------------- */
   function loadConfig(){
@@ -527,7 +582,7 @@
   var GH_API = 'https://api.github.com';
 
   function ghHeaders(withAuth){
-    var h = { 'Accept': 'application/vnd.github+json' };
+    var h = { 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' };
     if(withAuth && state.token) h['Authorization'] = 'Bearer ' + state.token;
     return h;
   }
@@ -551,7 +606,7 @@
         if(!res.ok) throw new Error('تعذّرت قراءة المستودع (رمز ' + res.status + ')');
         return res.json().then(function(data){
           var content = b64DecodeUnicode((data.content || '').replace(/\n/g, ''));
-          state.videos = content ? JSON.parse(content) : [];
+          state.videos = normalizeVideos(content ? JSON.parse(content) : []);
           state.sha = data.sha;
           return true;
         });
@@ -560,41 +615,34 @@
 
   function ghSave(commitMessage){
     if(!state.gh || !state.token) return Promise.reject(new Error('لم يتم إعداد رمز الوصول بعد.'));
-    var body = {
-      message: commitMessage || ('تحديث المكتبة — ' + new Date().toLocaleString('ar')),
-      content: b64EncodeUnicode(JSON.stringify(state.videos, null, 2)),
-      branch: state.gh.branch || 'main'
-    };
-    if(state.sha) body.sha = state.sha;
-    return fetch(ghFileUrl(), {
-      method: 'PUT',
-      headers: Object.assign(ghHeaders(true), {'Content-Type':'application/json'}),
-      body: JSON.stringify(body)
-    }).then(function(res){
-      if(!res.ok){
-        return res.json().catch(function(){ return {}; }).then(function(err){
-          throw new Error(err.message || ('تعذّر الحفظ في GitHub (رمز ' + res.status + ')'));
-        });
-      }
+    var body={message:commitMessage||('تحديث المكتبة — '+new Date().toLocaleString('ar')),content:b64EncodeUnicode(JSON.stringify(state.videos,null,2)),branch:state.gh.branch||'main'};
+    if(state.sha) body.sha=state.sha;
+    return fetch(ghFileUrl(),{method:'PUT',headers:Object.assign(ghHeaders(true),{'Content-Type':'application/json'}),body:JSON.stringify(body)}).then(function(res){
+      if(!res.ok) return res.json().catch(function(){return {};}).then(function(err){var e=new Error(err.message||('تعذّر الحفظ في GitHub (رمز '+res.status+')')); e.status=res.status; throw e;});
       return res.json();
-    }).then(function(data){
-      if(data.content) state.sha = data.content.sha;
-      return true;
+    }).then(function(data){if(data.content) state.sha=data.content.sha; return true;});
+  }
+  function reloadAndMergeAfterConflict(localSnapshot, commitMessage){
+    return ghLoad().then(function(){
+      var byId={}; state.videos.forEach(function(v){byId[v.id]=v;});
+      localSnapshot.forEach(function(v){if(!byId[v.id]) state.videos.push(v);});
+      state.videos=normalizeVideos(state.videos);
+      return ghSave(commitMessage);
     });
   }
-
   function persist(commitMessage){
-    if(state.connected && state.token){
-      return ghSave(commitMessage).then(function(){
-        toast('تم الحفظ في GitHub بنجاح', 'success');
-      }).catch(function(e){
-        toast(e.message, 'error');
-        saveLocalVideos();
-      });
-    }else{
-      saveLocalVideos();
-      return Promise.resolve();
-    }
+    state.videos=normalizeVideos(state.videos);
+    saveLocalVideos();
+    if(!(state.connected && state.token)) return Promise.resolve();
+    var snapshot=state.videos.map(function(v){return Object.assign({},v);});
+    state.saveQueue=state.saveQueue.then(function(){
+      state.saveBusy=true; renderSyncBadge();
+      return ghSave(commitMessage).catch(function(e){
+        if(e.status===409){ toast('حدث تعارض؛ تتم مزامنة أحدث نسخة والمحاولة مرة أخرى…'); return reloadAndMergeAfterConflict(snapshot,commitMessage); }
+        throw e;
+      }).then(function(){toast('تم الحفظ في GitHub بنجاح','success');},function(e){saveLocalVideos();toast(e.message||'تعذّر الحفظ في GitHub','error');}).finally(function(){state.saveBusy=false;renderSyncBadge();});
+    });
+    return state.saveQueue;
   }
 
   /* ---------------- oEmbed metadata ---------------- */
@@ -614,18 +662,27 @@
   }
 
   function filteredSorted(){
-    var list = state.videos.slice();
-    if(state.category !== 'الكل') list = list.filter(function(v){ return v.category === state.category; });
-    if(state.search){
-      var q = state.search.toLowerCase();
-      list = list.filter(function(v){
-        return (v.title||'').toLowerCase().indexOf(q) > -1 || (v.channel||'').toLowerCase().indexOf(q) > -1;
-      });
-    }
-    if(state.sort === 'newest') list.sort(function(a,b){ return new Date(b.addedAt) - new Date(a.addedAt); });
-    else if(state.sort === 'oldest') list.sort(function(a,b){ return new Date(a.addedAt) - new Date(b.addedAt); });
-    else if(state.sort === 'alpha') list.sort(function(a,b){ return (a.title||'').localeCompare(b.title||'', 'ar'); });
+    var list=state.videos.slice();
+    if(state.category!=='الكل') list=list.filter(function(v){return v.category===state.category;});
+    if(state.quickFilter==='favorites') list=list.filter(function(v){return v.favorite;});
+    if(state.quickFilter==='later') list=list.filter(function(v){return v.watchLater;});
+    if(state.quickFilter==='progress') list=list.filter(function(v){var p=getProgress(v);return p>0&&p<.9;});
+    if(state.quickFilter==='unwatched') list=list.filter(function(v){return getProgress(v)<=0;});
+    if(state.search){var q=state.search.toLowerCase();list=list.filter(function(v){return [v.title,v.channel,v.category,v.notes,(v.tags||[]).join(' ')].join(' ').toLowerCase().indexOf(q)>-1;});}
+    if(state.sort==='newest') list.sort(function(a,b){return new Date(b.addedAt)-new Date(a.addedAt);});
+    else if(state.sort==='oldest') list.sort(function(a,b){return new Date(a.addedAt)-new Date(b.addedAt);});
+    else if(state.sort==='alpha') list.sort(function(a,b){return (a.title||'').localeCompare(b.title||'','ar');});
+    else if(state.sort==='progress') list.sort(function(a,b){return getProgress(b)-getProgress(a);});
     return list;
+  }
+  function renderQuickFilters(){
+    var items=[['all','الكل'],['favorites','★ المفضلة'],['later','🕒 لاحقاً'],['progress','▶ قيد المشاهدة'],['unwatched','○ لم يبدأ']];
+    el('quickFilters').innerHTML=items.map(function(x){return '<button class="quick-filter '+(state.quickFilter===x[0]?'active':'')+'" data-qf="'+x[0]+'">'+x[1]+'</button>';}).join('');
+    Array.prototype.forEach.call(el('quickFilters').querySelectorAll('[data-qf]'),function(b){b.addEventListener('click',function(){state.quickFilter=b.getAttribute('data-qf');renderAll();});});
+  }
+  function renderStats(){
+    var total=state.videos.length, done=state.videos.filter(function(v){return getProgress(v)>=.9;}).length, fav=state.videos.filter(function(v){return v.favorite;}).length, later=state.videos.filter(function(v){return v.watchLater;}).length;
+    el('statStrip').innerHTML='<div class="stat">الفيديوهات <b>'+total+'</b></div><div class="stat">مكتمل <b>'+done+'</b></div><div class="stat">مفضلة <b>'+fav+'</b></div><div class="stat">لاحقاً <b>'+later+'</b></div>';
   }
 
   function renderSyncBadge(){
@@ -677,65 +734,49 @@
   }
 
   function renderGrid(){
-    var list = filteredSorted();
-    el('gridTitle').textContent = state.category === 'الكل' ? 'كل الفيديوهات' : state.category;
-    var grid = el('videoGrid');
-    el('emptyState').style.display = list.length ? 'none' : 'block';
-    grid.innerHTML = list.map(function(v){
-      var canEdit = state.connected ? !!state.token : true;
-      return (
-        '<div class="card" data-id="' + v.id + '">' +
-          (canEdit ?
-            '<div class="card-owner-actions">' +
-              '<button class="mini-btn edit-btn" data-edit="'+v.id+'" title="تعديل" aria-label="تعديل">' +
-                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>' +
-              '</button>' +
-              '<button class="mini-btn" data-del="'+v.id+'" title="حذف" aria-label="حذف">' +
-                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>' +
-              '</button>' +
-            '</div>' : '') +
-          '<div class="thumb-wrap" data-play="'+v.id+'">' +
-            '<img src="'+esc(v.thumbnail)+'" alt="'+esc(v.title)+'" loading="lazy">' +
-            '<div class="play-overlay"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>' +
-          '</div>' +
-          '<div class="card-body">' +
-            '<div class="card-title">'+esc(v.title)+'</div>' +
-            '<div class="card-meta"><span class="card-channel">'+esc(v.channel||'')+'</span>' + (v.category ? '<span class="card-cat">'+esc(v.category)+'</span>' : '') + '</div>' +
-          '</div>' +
-        '</div>'
-      );
+    var list=filteredSorted(); el('gridTitle').textContent=state.category==='الكل'?'كل الفيديوهات':state.category;
+    var grid=el('videoGrid'); el('emptyState').style.display=list.length?'none':'block';
+    grid.innerHTML=list.map(function(v){
+      var p=getProgress(v), done=p>=.9, canEdit=state.connected?!!state.token:true;
+      return '<div class="card" data-id="'+esc(v.id)+'">'+(canEdit?'<div class="card-owner-actions"><button class="mini-btn edit-btn" data-edit="'+esc(v.id)+'" title="تعديل">✎</button><button class="mini-btn" data-del="'+esc(v.id)+'" title="حذف">×</button></div>':'')+
+        '<div class="thumb-wrap" data-play="'+esc(v.id)+'"><img src="'+esc(v.thumbnail)+'" alt="'+esc(v.title)+'" loading="lazy"><div class="play-overlay"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div><div class="progress-track"><div class="progress-fill" style="width:'+formatPct(p)+'"></div></div></div>'+
+        '<div class="card-body"><div class="card-title">'+esc(v.title)+'</div><div class="card-meta"><span class="card-channel">'+esc(v.channel||'')+'</span>'+(v.category?'<span class="card-cat">'+esc(v.category)+'</span>':'')+'</div>'+
+        ((v.tags&&v.tags.length)?'<div class="tag-list">'+v.tags.slice(0,4).map(function(t){return '<span class="tag">'+esc(t)+'</span>';}).join('')+'</div>':'')+
+        '<div class="card-tools"><button class="tool-btn '+(v.favorite?'active':'')+'" data-fav="'+esc(v.id)+'" title="المفضلة">'+(v.favorite?'★':'☆')+'</button><button class="tool-btn '+(v.watchLater?'active':'')+'" data-later="'+esc(v.id)+'" title="لاحقاً">🕒</button><span style="font-size:.72rem;color:var(--muted);margin-inline-start:auto">'+(done?'مكتمل':(p>0?'استُكمل '+formatPct(p):'غير مشاهد'))+'</span></div></div></div>';
     }).join('');
-
-    Array.prototype.forEach.call(grid.querySelectorAll('[data-play]'), function(node){
-      node.addEventListener('click', function(){
-        var v = state.videos.find(function(x){ return x.id === node.getAttribute('data-play'); });
-        if(v) openPlayer(v);
-      });
-    });
-    Array.prototype.forEach.call(grid.querySelectorAll('[data-del]'), function(node){
-      node.addEventListener('click', function(e){
-        e.stopPropagation();
-        deleteVideo(node.getAttribute('data-del'));
-      });
-    });
-    Array.prototype.forEach.call(grid.querySelectorAll('[data-edit]'), function(node){
-      node.addEventListener('click', function(e){
-        e.stopPropagation();
-        openEdit(node.getAttribute('data-edit'));
-      });
-    });
+    Array.prototype.forEach.call(grid.querySelectorAll('[data-play]'),function(n){n.addEventListener('click',function(){var v=state.videos.find(function(x){return x.id===n.getAttribute('data-play');});if(v)openPlayer(v);});});
+    Array.prototype.forEach.call(grid.querySelectorAll('[data-del]'),function(n){n.addEventListener('click',function(e){e.stopPropagation();deleteVideo(n.getAttribute('data-del'));});});
+    Array.prototype.forEach.call(grid.querySelectorAll('[data-edit]'),function(n){n.addEventListener('click',function(e){e.stopPropagation();openEdit(n.getAttribute('data-edit'));});});
+    Array.prototype.forEach.call(grid.querySelectorAll('[data-fav]'),function(n){n.addEventListener('click',function(e){e.stopPropagation();toggleFlag(n.getAttribute('data-fav'),'favorite');});});
+    Array.prototype.forEach.call(grid.querySelectorAll('[data-later]'),function(n){n.addEventListener('click',function(e){e.stopPropagation();toggleFlag(n.getAttribute('data-later'),'watchLater');});});
   }
+  function toggleFlag(id,key){var v=state.videos.find(function(x){return x.id===id;});if(!v)return;v[key]=!v[key];renderAll();persist((v[key]?'تفعيل ':'إلغاء ')+key);}
 
-  function renderAll(){ renderSyncBadge(); renderChips(); renderHero(); renderGrid(); }
+  function renderAll(){ renderSyncBadge(); renderChips(); renderQuickFilters(); renderStats(); renderHero(); renderGrid(); }
 
   /* ---------------- player ---------------- */
-  function openPlayer(v){
-    el('playerVideoTitle').textContent = v.title;
-    el('playerVideoMeta').textContent = [v.channel, v.category].filter(Boolean).join(' • ');
-    el('playerFrame').innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/'+esc(v.videoId)+'?autoplay=1&rel=0" title="'+esc(v.title)+'" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
-    openModal('playerOverlay');
+  var ytApiReady=!!(window.YT&&window.YT.Player);
+  window.onYouTubeIframeAPIReady=function(){ytApiReady=true;};
+  function createPlayer(v){
+    if(!ytApiReady||!window.YT||!YT.Player){setTimeout(function(){createPlayer(v);},250);return;}
+    var start=Math.floor(getProgress(v)*(v.duration||0));
+    state.player=new YT.Player('playerFrame',{videoId:v.videoId,playerVars:{autoplay:1,rel:0,playsinline:1},events:{onReady:function(e){if(start>5)e.target.seekTo(start,true);},onStateChange:onPlayerStateChange,onError:function(){toast('تعذّر تشغيل هذا الفيديو عبر مشغل YouTube.','error');}}});
   }
-  function closePlayer(){ el('playerFrame').innerHTML = ''; }
+  function onPlayerStateChange(e){
+    if(!state.player||!state.playingId)return; var v=state.videos.find(function(x){return x.id===state.playingId;}); if(!v)return;
+    if(e.data===YT.PlayerState.PLAYING){ if(!state.progressTimer) state.progressTimer=setInterval(updatePlayerProgress,1000); }
+    else if(e.data===YT.PlayerState.PAUSED||e.data===YT.PlayerState.ENDED){ updatePlayerProgress(); clearInterval(state.progressTimer);state.progressTimer=null; if(e.data===YT.PlayerState.ENDED){setProgress(v,1,state.player.getDuration());persist('إكمال مشاهدة فيديو');} }
+  }
+  function updatePlayerProgress(){if(!state.player||!state.playingId)return;var v=state.videos.find(function(x){return x.id===state.playingId;});if(!v)return;var d=state.player.getDuration(),c=state.player.getCurrentTime();if(d>0){setProgress(v,c/d,d);el('playerProgressFill').style.width=formatPct(c/d);}}
+  function openPlayer(v){
+    state.playingId=v.id; el('playerVideoTitle').textContent=v.title;el('playerVideoMeta').textContent=[v.channel,v.category].filter(Boolean).join(' • ');
+    el('playerFavoriteBtn').textContent=v.favorite?'★ المفضلة':'☆ المفضلة';el('playerLaterBtn').textContent=v.watchLater?'✓ لاحقاً':'🕒 لاحقاً';
+    el('playerYoutubeBtn').onclick=function(){window.open('https://www.youtube.com/watch?v='+encodeURIComponent(v.videoId),'_blank','noopener');};
+    el('playerFavoriteBtn').onclick=function(){toggleFlag(v.id,'favorite');el('playerFavoriteBtn').textContent=v.favorite?'★ المفضلة':'☆ المفضلة';};
+    el('playerLaterBtn').onclick=function(){toggleFlag(v.id,'watchLater');el('playerLaterBtn').textContent=v.watchLater?'✓ لاحقاً':'🕒 لاحقاً';};
+    el('playerProgressFill').style.width=formatPct(getProgress(v)); openModal('playerOverlay'); setTimeout(function(){createPlayer(v);},0);
+  }
+  function closePlayer(){if(state.progressTimer){clearInterval(state.progressTimer);state.progressTimer=null;}updatePlayerProgress();if(state.player&&state.player.destroy)state.player.destroy();state.player=null;state.playingId=null;el('playerFrame').innerHTML='';el('playerProgressFill').style.width='0';}
 
   /* ---------------- add / edit ---------------- */
   function resetAddForm(){
@@ -747,6 +788,7 @@
     el('titleInput').value = '';
     el('channelInput').value = '';
     el('categoryInput').value = '';
+    el('tagsInput').value = ''; el('notesInput').value = ''; el('favoriteInput').checked = false; el('watchLaterInput').checked = false;
     el('previewBox').style.display = 'none';
   }
 
@@ -760,6 +802,7 @@
     el('titleInput').value = v.title;
     el('channelInput').value = v.channel || '';
     el('categoryInput').value = v.category || '';
+    el('tagsInput').value = (v.tags||[]).join(', '); el('notesInput').value = v.notes || ''; el('favoriteInput').checked=!!v.favorite; el('watchLaterInput').checked=!!v.watchLater;
     el('previewBox').style.display = 'flex';
     el('previewImg').src = v.thumbnail;
     el('previewTitle').textContent = v.title;
@@ -794,33 +837,13 @@
   }
 
   function saveVideo(){
-    var url = el('urlInput').value.trim();
-    var vid = extractYouTubeId(url);
-    if(!vid){ toast('أدخل رابط يوتيوب صحيحاً أولاً', 'error'); return; }
-    var title = el('titleInput').value.trim();
-    if(!title){ toast('أدخل عنوان الفيديو', 'error'); return; }
-
-    if(state.editingId){
-      var existing = state.videos.find(function(x){ return x.id === state.editingId; });
-      existing.videoId = vid;
-      existing.title = title;
-      existing.channel = el('channelInput').value.trim();
-      existing.category = el('categoryInput').value.trim();
-      existing.thumbnail = 'https://i.ytimg.com/vi/' + vid + '/hqdefault.jpg';
-    } else {
-      state.videos.unshift({
-        id: uid(),
-        videoId: vid,
-        title: title,
-        channel: el('channelInput').value.trim(),
-        category: el('categoryInput').value.trim(),
-        thumbnail: 'https://i.ytimg.com/vi/' + vid + '/hqdefault.jpg',
-        addedAt: new Date().toISOString()
-      });
-    }
-    closeModal('addOverlay');
-    renderAll();
-    persist(state.editingId ? 'تحديث فيديو' : 'إضافة فيديو جديد');
+    var url=el('urlInput').value.trim(),vid=extractYouTubeId(url); if(!vid){toast('أدخل رابط يوتيوب صحيحاً أولاً','error');return;}
+    var title=el('titleInput').value.trim(); if(!title){toast('أدخل عنوان الفيديو','error');return;}
+    var duplicate=state.videos.find(function(x){return x.videoId===vid&&x.id!==state.editingId;}); if(duplicate){toast('هذا الفيديو موجود بالفعل في مكتبتك.','error');return;}
+    var wasEdit=!!state.editingId, existing=wasEdit?state.videos.find(function(x){return x.id===state.editingId;}):null;
+    var data={videoId:vid,title:title,channel:el('channelInput').value.trim(),category:el('categoryInput').value.trim(),tags:tagsFromInput(el('tagsInput').value),notes:el('notesInput').value.trim(),favorite:el('favoriteInput').checked,watchLater:el('watchLaterInput').checked,thumbnail:'https://i.ytimg.com/vi/'+vid+'/hqdefault.jpg'};
+    if(existing) Object.assign(existing,data); else state.videos.unshift(Object.assign({id:uid(),addedAt:new Date().toISOString(),progress:0,duration:0,lastWatchedAt:null},data));
+    closeModal('addOverlay');renderAll();persist(wasEdit?'تحديث فيديو':'إضافة فيديو جديد');
   }
 
   function deleteVideo(id){
@@ -884,7 +907,7 @@
     localStorage.removeItem(TOKEN_SESSION_KEY);
     el('ghOwner').value = ''; el('ghRepo').value = ''; el('ghToken').value = '';
     var local = loadLocalVideos();
-    state.videos = local && local.length ? local : SAMPLE_VIDEOS;
+    state.videos = normalizeVideos(local && local.length ? local : SAMPLE_VIDEOS);
     closeModal('settingsOverlay');
     renderAll();
     toast('تم قطع الاتصال — رجعت إلى الوضع المحلي');
@@ -906,6 +929,15 @@
       : '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>';
   }
 
+  function exportLibrary(){
+    var payload={version:2,exportedAt:new Date().toISOString(),videos:state.videos};
+    var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='youtube-library-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(a.href);},1000);toast('تم تصدير النسخة الاحتياطية','success');
+  }
+  function handleImport(e){
+    var file=e.target.files&&e.target.files[0]; if(!file)return; var reader=new FileReader();
+    reader.onload=function(){try{var raw=JSON.parse(reader.result),incoming=normalizeVideos(raw.videos||raw);if(!incoming.length)throw new Error('لا توجد فيديوهات صالحة في الملف.');var map={};state.videos.forEach(function(v){map[v.videoId]=v;});incoming.forEach(function(v){if(map[v.videoId]){Object.assign(map[v.videoId],v);}else{state.videos.push(v);}});state.videos=normalizeVideos(state.videos);renderAll();persist('استيراد نسخة احتياطية');toast('تم الاستيراد بنجاح','success');}catch(err){toast('تعذّر استيراد الملف: '+err.message,'error');}e.target.value='';};reader.readAsText(file);
+  }
+
   /* ---------------- init ---------------- */
   function init(){
     loadConfig();
@@ -916,6 +948,9 @@
     el('saveVideoBtn').addEventListener('click', saveVideo);
     el('connectBtn').addEventListener('click', connectGithub);
     el('disconnectBtn').addEventListener('click', disconnectGithub);
+    el('exportBtn').addEventListener('click',exportLibrary);
+    el('importBtn').addEventListener('click',function(){el('importFile').click();});
+    el('importFile').addEventListener('change',handleImport);
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-close]'), function(btn){
       btn.addEventListener('click', function(){ closeModal(btn.getAttribute('data-close')); });
@@ -956,12 +991,12 @@
       }).catch(function(err){
         toast('تعذّر الاتصال التلقائي بـ GitHub: ' + err.message, 'error');
         var local = loadLocalVideos();
-        state.videos = local && local.length ? local : SAMPLE_VIDEOS;
+        state.videos = normalizeVideos(local && local.length ? local : SAMPLE_VIDEOS);
         renderAll();
       });
     } else {
       var local = loadLocalVideos();
-      state.videos = local && local.length ? local : SAMPLE_VIDEOS;
+      state.videos = normalizeVideos(local && local.length ? local : SAMPLE_VIDEOS);
       renderAll();
     }
   }
