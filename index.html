@@ -239,6 +239,19 @@
 
   .player-frame{position:relative; width:100%; aspect-ratio:16/9; background:#000;}
   .player-frame iframe{width:100%; height:100%; border:0;}
+  .end-guard{
+    position:absolute; inset:0; z-index:5;
+    display:flex; align-items:flex-end; justify-content:center;
+    padding-bottom:16px; background:transparent; pointer-events:none;
+  }
+  .end-guard.active{pointer-events:auto; cursor:default;}
+  .end-guard-badge{
+    opacity:0; transform:translateY(6px); pointer-events:none;
+    background:rgba(0,0,0,.75); color:#fff; font-size:.76rem; font-weight:600;
+    padding:6px 14px; border-radius:999px; transition:opacity .2s ease, transform .2s ease;
+    max-width:88%; text-align:center;
+  }
+  .end-guard.active .end-guard-badge{opacity:1; transform:translateY(0);}
   .player-local-warning{min-height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:28px;background:linear-gradient(135deg,var(--surface),var(--bg));}
   .player-local-warning-inner{max-width:560px;}
   .player-local-warning h3{font-size:1.25rem;margin-bottom:10px;}
@@ -396,9 +409,33 @@
   }
   .mini-resize-handle::after{content:'⤡'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:.8rem; color:#171208;}
   @media(max-width:640px){#playerOverlay.mini #playerModal{border-radius:10px;}}
+
+  /* ---------- speed button ---------- */
+  .speed-btn{width:auto; min-width:38px; padding:0 9px; font-size:.72rem; font-weight:800; letter-spacing:-.02em;}
+  #playerOverlay.mini .speed-btn{display:none;}
+
+  /* ---------- native Document Picture-in-Picture (window-in-window) ---------- */
+  /* When the player modal is physically moved into a real OS-level floating
+     window (Chrome/Edge 116+), the backdrop left behind in the main tab must
+     get out of the way completely instead of dimming the page uselessly. */
+  #playerOverlay.docpip-active{display:none !important; pointer-events:none;}
+  .docpip-modal{
+    width:100% !important; height:100% !important; max-width:none !important; max-height:none !important;
+    border-radius:0 !important; margin:0 !important; display:flex; flex-direction:column;
+  }
+  .docpip-modal .player-frame{flex:1 1 auto; min-height:0;}
 </style>
 </head>
 <body>
+<script>
+// تنظيف دفاعي: يلغي أي Service Worker قديم قد يكون سجّلته نسخة سابقة من الموقع
+// ويمنع بقاء الزوار عالقين على نسخة مخزّنة إلى الأبد بعد كل نشر جديد.
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.getRegistrations().then(function(regs){
+    regs.forEach(function(reg){ reg.unregister(); });
+  }).catch(function(){});
+}
+</script>
 
 <header>
   <div class="header-inner">
@@ -499,7 +536,8 @@
     <div class="modal-head" id="playerModalHead">
       <h2 id="playerTitleHead">تشغيل</h2>
       <div class="player-head-actions">
-        <button class="modal-close" id="minimizeBtn" title="تصغير" aria-label="تصغير">▁</button>
+        <button class="modal-close speed-btn" id="speedBtn" title="سرعة التشغيل (Shift + . / ,)" aria-label="سرعة التشغيل">1x</button>
+        <button class="modal-close" id="minimizeBtn" title="نافذة عائمة (I)" aria-label="نافذة عائمة">▁</button>
         <button class="modal-close" data-close="playerOverlay" aria-label="إغلاق">✕</button>
       </div>
     </div>
@@ -680,7 +718,11 @@
   "use strict";
 
   /* ---------------- helpers ---------------- */
-  function el(id){ return document.getElementById(id); }
+  function el(id){
+    if(!el._c) el._c = {};
+    if(!el._c[id]) el._c[id] = document.getElementById(id);
+    return el._c[id];
+  }
   function esc(s){ return (s||"").toString().replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
   function b64EncodeUnicode(str){
@@ -1198,21 +1240,113 @@
       var frame=e.target.getIframe&&e.target.getIframe();
       if(frame){frame.setAttribute('referrerpolicy','strict-origin-when-cross-origin');frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');frame.setAttribute('allowfullscreen','');}
       if(start>5)e.target.seekTo(start,true);
-    },onStateChange:onPlayerStateChange,onAutoplayBlocked:function(){toast('حظر Chrome التشغيل التلقائي؛ اضغط تشغيل داخل مشغل YouTube.','info');},onError:function(e){
+      updateSpeedLabel(1);
+      updateMediaSession(v);
+      updateEndGuard(e.target.getDuration(), start);
+    },onStateChange:onPlayerStateChange,onPlaybackRateChange:function(e){ updateSpeedLabel(e.data); },onAutoplayBlocked:function(){toast('حظر Chrome التشغيل التلقائي؛ اضغط تشغيل داخل مشغل YouTube.','info');},onError:function(e){
       if(e&&e.data===153){toast('YouTube لم يستلم HTTP Referer. تأكد من فتح الموقع عبر رابط HTTPS وليس file://.','error');}
       else if(e&&e.data===101||e&&e.data===150){toast('هذا الفيديو لا يسمح بالتشغيل المضمّن؛ استخدم «فتح في YouTube».','error');}
       else{toast('تعذّر تشغيل هذا الفيديو عبر مشغل YouTube.','error');}
     }}});
+    createEndGuard();
+  }
+
+  /* ---------------- end-guard: يحجب النقر على اقتراحات يوتيوب وشعارها في آخر ثوانٍ من الفيديو ---------------- */
+  var END_GUARD_SECONDS = 12; // آخر كم ثانية يتم فيها حجب النقر (10-15 ثانية حسب طلبك)
+  function createEndGuard(){
+    var host = el('playerFrame'); if(!host) return;
+    var guard = document.createElement('div');
+    guard.className = 'end-guard'; guard.id = 'endGuard';
+    guard.innerHTML = '<span class="end-guard-badge">تم حجب اقتراحات يوتيوب لمنع الانتقال بالخطأ</span>';
+    host.appendChild(guard);
+  }
+  function updateEndGuard(duration, current){
+    var guard = el('endGuard'); if(!guard) return;
+    var remaining = duration - current;
+    if(duration > 0 && remaining <= END_GUARD_SECONDS) guard.classList.add('active');
+    else guard.classList.remove('active');
   }
   function onPlayerStateChange(e){
     if(!state.player||!state.playingId)return; var v=state.videos.find(function(x){return x.id===state.playingId;}); if(!v)return;
+    if('mediaSession' in navigator){
+      navigator.mediaSession.playbackState = (e.data===YT.PlayerState.PLAYING) ? 'playing' : 'paused';
+    }
     if(e.data===YT.PlayerState.PLAYING){ if(!state.progressTimer) state.progressTimer=setInterval(updatePlayerProgress,1000); }
     else if(e.data===YT.PlayerState.PAUSED||e.data===YT.PlayerState.ENDED){ updatePlayerProgress(); clearInterval(state.progressTimer);state.progressTimer=null; if(e.data===YT.PlayerState.ENDED){setProgress(v,1,state.player.getDuration());persist('إكمال مشاهدة فيديو');} }
   }
-  function updatePlayerProgress(){if(!state.player||!state.playingId)return;var v=state.videos.find(function(x){return x.id===state.playingId;});if(!v)return;var d=state.player.getDuration(),c=state.player.getCurrentTime();if(d>0){setProgress(v,c/d,d);el('playerProgressFill').style.width=formatPct(c/d);}}
+
+  /* ---------------- playback controls: speed, seek, volume, fullscreen ---------------- */
+  var SPEED_FALLBACK = [0.5,0.75,1,1.25,1.5,1.75,2];
+  function updateSpeedLabel(rate){
+    var btn = el('speedBtn'); if(!btn) return;
+    btn.textContent = (Math.round(rate*100)/100) + 'x';
+  }
+  function cycleSpeed(dir){
+    if(!state.player||!state.player.setPlaybackRate) return;
+    var rates = (state.player.getAvailablePlaybackRates && state.player.getAvailablePlaybackRates()) || SPEED_FALLBACK;
+    if(!rates.length) rates = SPEED_FALLBACK;
+    var cur = state.player.getPlaybackRate ? state.player.getPlaybackRate() : 1;
+    var idx = rates.indexOf(cur);
+    if(idx===-1){ idx=0; var best=Infinity; rates.forEach(function(r,i){var d=Math.abs(r-cur); if(d<best){best=d; idx=i;}}); }
+    idx = (idx + dir + rates.length) % rates.length;
+    state.player.setPlaybackRate(rates[idx]);
+    updateSpeedLabel(rates[idx]);
+  }
+  function togglePlayPause(){
+    if(!state.player) return;
+    var st = state.player.getPlayerState && state.player.getPlayerState();
+    if(st===1) state.player.pauseVideo(); else state.player.playVideo();
+  }
+  function seekBy(sec){
+    if(!state.player||!state.player.getCurrentTime) return;
+    state.player.seekTo(Math.max(0, state.player.getCurrentTime()+sec), true);
+  }
+  function changeVolume(delta){
+    if(!state.player||!state.player.getVolume) return;
+    var v = Math.max(0, Math.min(100, state.player.getVolume()+delta));
+    state.player.setVolume(v);
+    if(v<=0) state.player.mute(); else state.player.unMute();
+  }
+  function toggleMute(){
+    if(!state.player) return;
+    if(state.player.isMuted && state.player.isMuted()) state.player.unMute(); else state.player.mute();
+  }
+  function toggleFullscreen(){
+    var frame = el('playerFrame') && el('playerFrame').querySelector('iframe');
+    if(frame && frame.requestFullscreen) frame.requestFullscreen();
+  }
+
+  /* ---------------- MediaSession: lock-screen / notification controls ---------------- */
+  function updateMediaSession(v){
+    if(!('mediaSession' in navigator) || typeof MediaMetadata==='undefined') return;
+    try{
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: v.title || 'فيديو',
+        artist: v.channel || 'مكتبتي',
+        artwork: v.thumbnail ? [{src:v.thumbnail, sizes:'480x360', type:'image/jpeg'}] : []
+      });
+      navigator.mediaSession.setActionHandler('play', function(){ state.player && state.player.playVideo(); });
+      navigator.mediaSession.setActionHandler('pause', function(){ state.player && state.player.pauseVideo(); });
+      navigator.mediaSession.setActionHandler('seekbackward', function(d){ seekBy(-((d&&d.seekOffset)||10)); });
+      navigator.mediaSession.setActionHandler('seekforward', function(d){ seekBy((d&&d.seekOffset)||10); });
+      navigator.mediaSession.setActionHandler('seekto', function(d){ if(state.player && d && d.seekTime!=null) state.player.seekTo(d.seekTime, true); });
+      navigator.mediaSession.setActionHandler('stop', function(){ closeModal('playerOverlay'); });
+    }catch(e){ /* بعض المعالجات قد لا تكون مدعومة في متصفحات معيّنة — تجاهل بأمان */ }
+  }
+  function clearMediaSession(){
+    if(!('mediaSession' in navigator)) return;
+    try{
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = 'none';
+      ['play','pause','seekbackward','seekforward','seekto','stop'].forEach(function(a){
+        try{ navigator.mediaSession.setActionHandler(a, null); }catch(e){}
+      });
+    }catch(e){}
+  }
+  function updatePlayerProgress(){if(!state.player||!state.playingId)return;var v=state.videos.find(function(x){return x.id===state.playingId;});if(!v)return;var d=state.player.getDuration(),c=state.player.getCurrentTime();updateEndGuard(d,c);if(d>0){setProgress(v,c/d,d);el('playerProgressFill').style.width=formatPct(c/d);}}
   function openPlayer(v){
     if(state.player && state.playingId && state.playingId!==v.id){ closePlayer(); }
-    else { exitMiniMode(); }
+    else { exitFloating(); }
     state.playingId=v.id; el('playerTitleHead').textContent=v.title; el('playerVideoTitle').textContent=v.title;el('playerVideoMeta').textContent=[v.channel,v.category].filter(Boolean).join(' • ');
     el('playerFavoriteBtn').textContent=v.favorite?'★ المفضلة':'☆ المفضلة';el('playerLaterBtn').textContent=v.watchLater?'✓ لاحقاً':'🕒 لاحقاً';
     var deleteBtn=el('playerDeleteBtn');
@@ -1230,7 +1364,7 @@
     el('playerProgressFill').style.width=formatPct(getProgress(v)); openModal('playerOverlay');
     if(!state.player){ setTimeout(function(){createPlayer(v);},0); }
   }
-  function closePlayer(){if(state.progressTimer){clearInterval(state.progressTimer);state.progressTimer=null;}updatePlayerProgress();if(state.player&&state.player.destroy)state.player.destroy();state.player=null;state.playingId=null;el('playerFrame').innerHTML='';el('playerProgressFill').style.width='0';exitMiniMode();}
+  function closePlayer(){if(state.progressTimer){clearInterval(state.progressTimer);state.progressTimer=null;}updatePlayerProgress();if(state.player&&state.player.destroy)state.player.destroy();state.player=null;state.playingId=null;el('playerFrame').innerHTML='';el('playerProgressFill').style.width='0';clearMediaSession();exitFloating();}
 
   /* ---------------- mini floating player (minimize while keeping playback + free navigation) ---------------- */
   var MINI_MIN_W = 150;
@@ -1275,6 +1409,67 @@
     m.style.width=''; m.style.left=''; m.style.top='';
   }
   function toggleMini(){ if(state.mini.active) exitMiniMode(); else enterMiniMode(); }
+
+  /* ---------------- native Document Picture-in-Picture ----------------
+     مصدر: https://developer.chrome.com/docs/web-platform/document-picture-in-picture
+     يفتح نافذة حقيقية على مستوى نظام التشغيل (تبقى فوق كل النوافذ، حتى
+     خارج المتصفح) وينقل عنصر المشغّل إليها دون توقف التشغيل — وهذا ما
+     تفعله التطبيقات الاحترافية فعلياً، بخلاف صندوق عائم مرسوم داخل الصفحة.
+     مدعومة حالياً في Chrome/Edge لسطح المكتب فقط (لا تعمل بعد على أندرويد
+     أو Firefox أو Safari)، لذلك تبقى وضعية "mini" الحالية كبديل شامل. */
+  var docPipWin = null;
+  function supportsDocPiP(){ return ('documentPictureInPicture' in window); }
+  function enterDocPiP(){
+    if(!state.player || docPipWin) return;
+    if(!supportsDocPiP()){ enterMiniMode(); return; }
+    window.documentPictureInPicture.requestWindow({width:420, height:290}).then(function(pipWin){
+      docPipWin = pipWin;
+      Array.prototype.forEach.call(document.styleSheets, function(ss){
+        try{
+          if(ss.ownerNode && ss.ownerNode.tagName==='STYLE'){
+            pipWin.document.head.appendChild(ss.ownerNode.cloneNode(true));
+          } else if(ss.href){
+            var link = pipWin.document.createElement('link');
+            link.rel='stylesheet'; link.href=ss.href;
+            pipWin.document.head.appendChild(link);
+          }
+        }catch(err){}
+      });
+      pipWin.document.documentElement.setAttribute('lang','ar');
+      pipWin.document.documentElement.setAttribute('dir','rtl');
+      pipWin.document.title = el('playerTitleHead') ? el('playerTitleHead').textContent : 'تشغيل';
+      pipWin.document.body.style.margin='0';
+      pipWin.document.body.style.background='var(--bg)';
+      if(document.body.classList.contains('light')) pipWin.document.body.classList.add('light');
+      var modal = el('playerModal');
+      modal.classList.add('docpip-modal');
+      pipWin.document.body.appendChild(modal);
+      el('playerOverlay').classList.add('docpip-active');
+      var mb = el('minimizeBtn'); if(mb){ mb.innerHTML='⇱'; mb.title='استعادة إلى الصفحة الرئيسية'; }
+      pipWin.addEventListener('pagehide', function(){ exitDocPiP(true); }, {once:true});
+      toast('الفيديو الآن في نافذة عائمة مستقلة — يمكنك التنقل بحرية','success');
+    }).catch(function(){ enterMiniMode(); });
+  }
+  function exitDocPiP(fromWindowClose){
+    if(!docPipWin) return;
+    var modal = el('playerModal');
+    modal.classList.remove('docpip-modal');
+    el('playerOverlay').appendChild(modal);
+    el('playerOverlay').classList.remove('docpip-active');
+    var mb = el('minimizeBtn'); if(mb){ mb.innerHTML='▁'; mb.title='نافذة عائمة (I)'; }
+    if(!fromWindowClose){ try{ docPipWin.close(); }catch(err){} }
+    docPipWin = null;
+  }
+  function toggleFloating(){
+    if(docPipWin){ exitDocPiP(); return; }
+    if(state.mini.active){ exitMiniMode(); return; }
+    if(!state.player) return;
+    if(supportsDocPiP()) enterDocPiP(); else enterMiniMode();
+  }
+  function exitFloating(){
+    if(docPipWin){ try{ docPipWin.close(); }catch(err){} exitDocPiP(true); }
+    if(state.mini.active) exitMiniMode();
+  }
 
   function touchDist(touches){ var dx=touches[0].clientX-touches[1].clientX, dy=touches[0].clientY-touches[1].clientY; return Math.sqrt(dx*dx+dy*dy); }
 
@@ -1534,8 +1729,31 @@
       if((t = e.target.closest('[data-later]'))){ e.stopPropagation(); toggleFlag(t.getAttribute('data-later'),'watchLater'); return; }
     });
 
-    el('minimizeBtn').addEventListener('click', function(e){ e.stopPropagation(); toggleMini(); });
+    el('minimizeBtn').addEventListener('click', function(e){ e.stopPropagation(); toggleFloating(); });
     initMiniInteractions();
+
+    el('speedBtn').addEventListener('click', function(e){ e.stopPropagation(); cycleSpeed(1); });
+
+    // اختصارات لوحة مفاتيح احترافية — تعمل فقط أثناء تشغيل فيديو وخارج أي حقل إدخال
+    document.addEventListener('keydown', function(e){
+      if(!state.playingId || !state.player) return;
+      var tag = e.target && e.target.tagName;
+      if(tag==='INPUT' || tag==='TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+      switch(e.key){
+        case ' ': case 'k': case 'K': e.preventDefault(); togglePlayPause(); break;
+        case 'ArrowRight': seekBy(5); break;
+        case 'ArrowLeft': seekBy(-5); break;
+        case 'j': case 'J': seekBy(-10); break;
+        case 'l': case 'L': seekBy(10); break;
+        case 'ArrowUp': e.preventDefault(); changeVolume(10); break;
+        case 'ArrowDown': e.preventDefault(); changeVolume(-10); break;
+        case 'm': case 'M': toggleMute(); break;
+        case 'f': case 'F': toggleFullscreen(); break;
+        case 'i': case 'I': toggleFloating(); break;
+        case '>': case '.': cycleSpeed(1); break;
+        case '<': case ',': cycleSpeed(-1); break;
+      }
+    });
 
     el('addVideoBtn').addEventListener('click', function(){ resetAddForm(); openModal('addOverlay'); });
     el('settingsBtn').addEventListener('click', openSettings);
