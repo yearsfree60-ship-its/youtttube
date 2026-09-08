@@ -13,7 +13,9 @@
     "watchLater": false,
     "progress": 0.1280286313501712,
     "duration": 1615.921,
-    "lastWatchedAt": "2026-09-07T07:17:29.412Z"
+    "lastWatchedAt": "2026-09-07T07:17:29.412Z",
+    "playlistId": null,
+    "playlistTitle": ""
   },
   {
     "id": "v_mtqwnmume4lvuo",
@@ -29,23 +31,9 @@
     "watchLater": false,
     "progress": 0,
     "duration": 0,
-    "lastWatchedAt": null
-  },
-  {
-    "id": "v_mtqwnmum6jsi7x",
-    "videoId": "PHwqm1uSLVM",
-    "title": "هل مشاكلك غير قابلة للحل ؟ - فن اللامبالاة - الجزء الثالث - دوباميكافين",
-    "channel": "دوباميكافين Dupamicaffeine",
-    "category": "تطوير ذات",
-    "thumbnail": "https://i.ytimg.com/vi/PHwqm1uSLVM/mqdefault.jpg",
-    "addedAt": "2026-09-07T07:14:28.844Z",
-    "tags": [],
-    "notes": "",
-    "favorite": false,
-    "watchLater": false,
-    "progress": 0,
-    "duration": 0,
-    "lastWatchedAt": null
+    "lastWatchedAt": null,
+    "playlistId": null,
+    "playlistTitle": ""
   },
   {
     "id": "v_mtqwnmumvossn9",
@@ -61,7 +49,9 @@
     "watchLater": false,
     "progress": 0,
     "duration": 0,
-    "lastWatchedAt": null
+    "lastWatchedAt": null,
+    "playlistId": null,
+    "playlistTitle": ""
   },
   {
     "id": "v_mtqwnmunlvxhj9",
@@ -77,7 +67,9 @@
     "watchLater": false,
     "progress": 0,
     "duration": 0,
-    "lastWatchedAt": null
+    "lastWatchedAt": null,
+    "playlistId": null,
+    "playlistTitle": ""
   },
   {
     "id": "v_mtqwnmunflyem0",
@@ -93,6 +85,8 @@
     "watchLater": false,
     "progress": 0.0003339243049373714,
     "duration": 2011.941,
-    "lastWatchedAt": "2026-09-07T07:17:40.955Z"
+    "lastWatchedAt": "2026-09-07T07:17:40.955Z",
+    "playlistId": null,
+    "playlistTitle": ""
   }
 ]
