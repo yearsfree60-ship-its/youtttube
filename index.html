@@ -295,6 +295,8 @@
   /* ---------- V2 library controls ---------- */
   .quick-filters{display:flex;gap:8px;flex-wrap:wrap;max-width:1400px;margin:10px auto 0;padding:0 24px;}
   .quick-filter{padding:7px 12px;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-size:.8rem;color:var(--muted);}
+  .playlist-chips{max-width:1400px;margin:10px auto 0;padding:0 24px;}
+  .playlist-chips .chip.pl-active{background:var(--accent2);border-color:var(--accent2);color:#0a1613;font-weight:700;}
   .quick-filter.active{border-color:var(--accent2);color:var(--accent2);background:var(--card);}
   .card-tools{display:flex;gap:6px;margin-top:9px;align-items:center;}
   .tool-btn{width:30px;height:30px;border:1px solid var(--border);border-radius:50%;background:var(--surface);display:inline-flex;align-items:center;justify-content:center;font-size:.9rem;}
@@ -311,7 +313,7 @@
   .player-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
   .notes{width:100%;min-height:90px;resize:vertical;padding:10px 12px;border-radius:9px;background:var(--card);border:1px solid var(--border);font-size:.9rem;}
   .import-input{display:none;}
-  @media(max-width:640px){.quick-filters,.stat-strip{padding:0 16px}.stat-strip{overflow:auto;flex-wrap:nowrap}.quick-filters{overflow:auto;flex-wrap:nowrap}.quick-filter{flex:0 0 auto}.player-actions .btn{flex:1;justify-content:center}}
+  @media(max-width:640px){.quick-filters,.stat-strip,.playlist-chips{padding:0 16px}.stat-strip{overflow:auto;flex-wrap:nowrap}.quick-filters{overflow:auto;flex-wrap:nowrap}.quick-filter{flex:0 0 auto}.player-actions .btn{flex:1;justify-content:center}}
 
   /* ---------- app shell: bottom nav + views ---------- */
   #appMain{padding-bottom:86px;}
@@ -384,6 +386,7 @@
   }
   .status-badge.done{background:rgba(87,184,166,.85);}
   .status-badge.watching{background:rgba(228,168,83,.88); color:#171208;}
+  .pl-folder-badge{position:absolute; top:8px; left:8px; z-index:3; background:rgba(10,13,18,.75); color:#fff; font-size:.7rem; font-weight:700; padding:3px 9px; border-radius:999px; backdrop-filter:blur(4px);}
 
   /* ---------- mini floating player ---------- */
   .player-head-actions{display:flex; align-items:center; gap:6px;}
@@ -476,6 +479,7 @@ if('serviceWorker' in navigator){
     </select>
   </div>
   <div class="quick-filters" id="quickFilters"></div>
+  <div class="chips playlist-chips" id="playlistChips"></div>
   <div class="stat-strip" id="statStrip"></div>
 
   <h2 class="section-title" id="gridTitle">كل الفيديوهات</h2>
@@ -490,7 +494,7 @@ if('serviceWorker' in navigator){
 </section>
 
 <!-- ===== Admin view (owner only) ===== -->
-<section id="adminView" class="view admin-control" style="display:none;">
+<section id="adminView" class="view" style="display:none;">
   <div class="admin-panel">
     <h2 class="section-title" style="margin-top:22px;">لوحة الإدارة</h2>
     <div class="stat-strip" id="adminStatStrip"></div>
@@ -525,7 +529,7 @@ if('serviceWorker' in navigator){
   <button class="nav-item" data-nav="continue"><span class="nav-ico">▶</span><span>متابعة</span></button>
   <button class="nav-item" data-nav="favorites"><span class="nav-ico">★</span><span>المفضلة</span></button>
   <button class="nav-item" data-nav="library"><span class="nav-ico">▦</span><span>المكتبة</span></button>
-  <button class="nav-item admin-control" data-nav="admin"><span class="nav-ico">⚙</span><span>الإدارة</span></button>
+  <button class="nav-item" data-nav="admin"><span class="nav-ico">⚙</span><span>الإدارة</span></button>
 </nav>
 
 <footer>مكتبة شخصية لمقاطع يوتيوب — تعمل بالكامل من المتصفح، بدون خادم.</footer>
@@ -758,7 +762,7 @@ if('serviceWorker' in navigator){
     search: '', category: 'الكل', sort: 'newest', quickFilter: 'all',
     editingId: null, metaFetched: null, player: null, playingId: null,
     saveQueue: Promise.resolve(), saveBusy: false,
-    view: 'home', visibleCount: 24, ytApiKey: null, playlistPreview: []
+    view: 'home', visibleCount: 24, ytApiKey: null, playlistPreview: [], playlistFilter: null
   };
   var PAGE_SIZE = 24;
 
@@ -778,7 +782,7 @@ if('serviceWorker' in navigator){
 
   function normalizeVideo(v){
     v=v||{};
-    return { id:v.id||uid(), videoId:v.videoId||'', title:v.title||'', channel:v.channel||'', category:v.category||'', thumbnail:v.thumbnail||('https://i.ytimg.com/vi/'+(v.videoId||'')+'/hqdefault.jpg'), addedAt:v.addedAt||new Date().toISOString(), tags:Array.isArray(v.tags)?v.tags:[], notes:v.notes||'', favorite:!!v.favorite, watchLater:!!v.watchLater, progress:Number(v.progress)||0, duration:Number(v.duration)||0, lastWatchedAt:v.lastWatchedAt||null };
+    return { id:v.id||uid(), videoId:v.videoId||'', title:v.title||'', channel:v.channel||'', category:v.category||'', thumbnail:v.thumbnail||('https://i.ytimg.com/vi/'+(v.videoId||'')+'/hqdefault.jpg'), addedAt:v.addedAt||new Date().toISOString(), tags:Array.isArray(v.tags)?v.tags:[], notes:v.notes||'', favorite:!!v.favorite, watchLater:!!v.watchLater, progress:Number(v.progress)||0, duration:Number(v.duration)||0, lastWatchedAt:v.lastWatchedAt||null, playlistId:v.playlistId||null, playlistTitle:v.playlistTitle||'' };
   }
   function normalizeVideos(list){
     var seen={}; return (Array.isArray(list)?list:[]).map(normalizeVideo).filter(function(v){
@@ -938,7 +942,15 @@ if('serviceWorker' in navigator){
     return step(null);
   }
 
-  function playlistItemToVideo(item, category, orderIndex){
+  function fetchPlaylistTitle(playlistId){
+    var url = 'https://www.googleapis.com/youtube/v3/playlists?part=snippet&id=' + encodeURIComponent(playlistId) + '&key=' + encodeURIComponent(state.ytApiKey);
+    return fetch(url).then(function(res){ return res.json(); }).then(function(data){
+      var item = data.items && data.items[0];
+      return item ? item.snippet.title : '';
+    }).catch(function(){ return ''; });
+  }
+
+  function playlistItemToVideo(item, category, orderIndex, playlistId, playlistTitle){
     var sn = item.snippet || {};
     var vid = sn.resourceId && sn.resourceId.videoId;
     if(!vid) return null;
@@ -953,7 +965,9 @@ if('serviceWorker' in navigator){
       channel: sn.videoOwnerChannelTitle || sn.channelTitle || '',
       category: category || '',
       thumbnail: thumb,
-      addedAt: addedAt
+      addedAt: addedAt,
+      playlistId: playlistId,
+      playlistTitle: playlistTitle || 'قائمة تشغيل'
     });
   }
 
@@ -970,13 +984,14 @@ if('serviceWorker' in navigator){
     btn.disabled = true;
     progressEl.textContent = 'جارِ الجلب…';
 
-    fetchAllPlaylistItems(pid, function(n){ progressEl.textContent = 'تم جلب ' + n + ' عنصراً حتى الآن…'; })
-      .then(function(items){
+    Promise.all([fetchPlaylistTitle(pid), fetchAllPlaylistItems(pid, function(n){ progressEl.textContent = 'تم جلب ' + n + ' عنصراً حتى الآن…'; })])
+      .then(function(res){
+        var plTitle = res[0]; var items = res[1];
         var existingIds = {}; state.videos.forEach(function(v){ existingIds[v.videoId] = true; });
         var skippedBad = 0;
         state.playlistPreview = [];
         items.forEach(function(item, idx){
-          var v = playlistItemToVideo(item, category, idx);
+          var v = playlistItemToVideo(item, category, idx, pid, plTitle);
           if(!v){ skippedBad++; return; }
           var dup = !!existingIds[v.videoId];
           state.playlistPreview.push({ video: v, selected: !dup, dup: dup });
@@ -1046,10 +1061,19 @@ if('serviceWorker' in navigator){
     state.videos.forEach(function(v){ if(v.category) set[v.category] = true; });
     return Object.keys(set).sort();
   }
+  function playlists(){
+    var map={}; state.videos.forEach(function(v){
+      if(!v.playlistId) return;
+      if(!map[v.playlistId]) map[v.playlistId]={id:v.playlistId,title:v.playlistTitle||'قائمة تشغيل',count:0,thumb:v.thumbnail};
+      map[v.playlistId].count++;
+    });
+    return Object.keys(map).map(function(k){return map[k];}).sort(function(a,b){return b.count-a.count;});
+  }
 
   function filteredSorted(){
     var list=state.videos.slice();
     if(state.category!=='الكل') list=list.filter(function(v){return v.category===state.category;});
+    if(state.playlistFilter) list=list.filter(function(v){return v.playlistId===state.playlistFilter;});
     if(state.quickFilter==='favorites') list=list.filter(function(v){return v.favorite;});
     if(state.quickFilter==='later') list=list.filter(function(v){return v.watchLater;});
     if(state.quickFilter==='progress') list=list.filter(function(v){var p=getProgress(v);return p>0&&p<.9;});
@@ -1109,6 +1133,22 @@ if('serviceWorker' in navigator){
     });
     var datalist = el('categoryList');
     datalist.innerHTML = cats.map(function(c){ return '<option value="' + esc(c) + '">'; }).join('');
+    renderPlaylistChips();
+  }
+
+  function renderPlaylistChips(){
+    var pls = playlists();
+    var host = el('playlistChips');
+    if(!pls.length){ host.innerHTML=''; return; }
+    var chips = '<button class="chip'+(!state.playlistFilter?' active':'')+'" data-pl="">كل الفيديوهات</button>' +
+      pls.map(function(p){ return '<button class="chip pl-active-src'+(state.playlistFilter===p.id?' active':'')+'" data-pl="'+esc(p.id)+'">▤ '+esc(p.title)+' ('+p.count+')</button>'; }).join('');
+    host.innerHTML = chips;
+    Array.prototype.forEach.call(host.querySelectorAll('[data-pl]'), function(btn){
+      btn.addEventListener('click', function(){
+        state.playlistFilter = btn.getAttribute('data-pl') || null;
+        renderPlaylistChips(); renderGrid();
+      });
+    });
   }
 
   function renderHero(){
@@ -1142,7 +1182,8 @@ if('serviceWorker' in navigator){
 
   function renderGrid(){
     var full=filteredSorted();
-    el('gridTitle').textContent = state.quickFilter==='favorites' ? 'المفضلة' : state.quickFilter==='progress' ? 'متابعة المشاهدة' : (state.category==='الكل'?'كل الفيديوهات':state.category);
+    var plTitle = state.playlistFilter && (playlists().filter(function(p){return p.id===state.playlistFilter;})[0]||{}).title;
+    el('gridTitle').textContent = plTitle ? ('▤ ' + plTitle) : (state.quickFilter==='favorites' ? 'المفضلة' : state.quickFilter==='progress' ? 'متابعة المشاهدة' : (state.category==='الكل'?'كل الفيديوهات':state.category));
     var grid=el('videoGrid'); el('emptyState').style.display=full.length?'none':'block';
     var visible=full.slice(0, state.visibleCount);
     grid.innerHTML=visible.map(cardHTML).join('');
@@ -1161,18 +1202,24 @@ if('serviceWorker' in navigator){
     return '<div class="home-row"><div class="home-row-head"><h2>'+esc(title)+'</h2><button class="row-seeall" data-seeall="'+navTarget+'">عرض الكل ›</button></div>'+
       '<div class="row-scroll">'+list.map(function(v){return '<div class="row-card">'+cardHTML(v)+'</div>';}).join('')+'</div></div>';
   }
+  function playlistFolderHTML(p){
+    return '<div class="row-card pl-folder" data-openpl="'+esc(p.id)+'">'+
+      '<div class="thumb-wrap"><img src="'+esc(p.thumb)+'" alt="" loading="lazy"><span class="pl-folder-badge">▤ '+p.count+'</span></div>'+
+      '<div class="card-body"><div class="card-title">'+esc(p.title)+'</div></div></div>';
+  }
   function renderHomeRows(){
     var all=state.videos.slice();
+    var pls=playlists();
+    var plsHtml = pls.length ? ('<div class="home-row"><div class="home-row-head"><h2>قوائم التشغيل</h2><button class="row-seeall" data-seeall="library">عرض الكل ›</button></div><div class="row-scroll">'+pls.map(playlistFolderHTML).join('')+'</div></div>') : '';
     var continuing=all.filter(function(v){var p=getProgress(v);return p>0&&p<.9;}).sort(function(a,b){return new Date(b.lastWatchedAt||0)-new Date(a.lastWatchedAt||0);}).slice(0,10);
     var latest=all.slice().sort(function(a,b){return new Date(b.addedAt)-new Date(a.addedAt);}).slice(0,10);
     var favs=all.filter(function(v){return v.favorite;}).slice(0,10);
-    var html = homeRow('تابع المشاهدة',continuing,'continue') + homeRow('آخر الإضافات',latest,'library') + homeRow('المفضلة',favs,'favorites');
+    var html = plsHtml + homeRow('تابع المشاهدة',continuing,'continue') + homeRow('آخر الإضافات',latest,'library') + homeRow('المفضلة',favs,'favorites');
     el('homeRows').innerHTML = html || '<p class="empty-state" style="padding:40px 24px;">أضف فيديوهات لتظهر هنا مرتبة تلقائياً.</p>';
   }
 
   /* ---------------- view switching ---------------- */
   function setView(name){
-    if(name==='admin' && !isAdmin()) name='home';
     state.view=name; state.visibleCount=PAGE_SIZE;
     if(name==='continue') state.quickFilter='progress';
     else if(name==='favorites') state.quickFilter='favorites';
@@ -1213,7 +1260,6 @@ if('serviceWorker' in navigator){
     el2.innerHTML='<div class="stat">إجمالي الفيديوهات <b>'+total+'</b></div><div class="stat">مكتمل <b>'+done+'</b></div><div class="stat">تصنيفات <b>'+cats+'</b></div>';
   }
   function renderAll(){
-    if(state.view==='admin' && !isAdmin()) state.view='home';
     updateAdminUI(); renderSyncBadge(); renderNav();
     if(state.view==='home'){ renderHero(); renderHomeRows(); }
     else if(state.view==='admin'){ renderAdminStats(); }
@@ -1670,7 +1716,6 @@ if('serviceWorker' in navigator){
     el('ghOwner').value = ''; el('ghRepo').value = ''; el('ghToken').value = '';
     var local = loadLocalVideos();
     state.videos = normalizeVideos(local && local.length ? local : SAMPLE_VIDEOS);
-    if(state.view==='admin') state.view='home';
     closeModal('settingsOverlay');
     renderAll();
     toast('تم قطع الاتصال — رجعت إلى الوضع المحلي');
@@ -1709,7 +1754,7 @@ if('serviceWorker' in navigator){
 
     // Bottom navigation
     Array.prototype.forEach.call(document.querySelectorAll('.nav-item'), function(btn){
-      btn.addEventListener('click', function(){ setView(btn.getAttribute('data-nav')); });
+      btn.addEventListener('click', function(){ state.playlistFilter=null; setView(btn.getAttribute('data-nav')); });
     });
 
     // Load more (pagination) — keeps large libraries fast to render
@@ -1721,7 +1766,8 @@ if('serviceWorker' in navigator){
     // Single delegated handler for all card interactions (grid + home rows)
     document.addEventListener('click', function(e){
       var t;
-      if((t = e.target.closest('[data-seeall]'))){ setView(t.getAttribute('data-seeall')); return; }
+      if((t = e.target.closest('[data-seeall]'))){ state.playlistFilter=null; setView(t.getAttribute('data-seeall')); return; }
+      if((t = e.target.closest('[data-openpl]'))){ state.playlistFilter = t.getAttribute('data-openpl'); setView('library'); return; }
       if((t = e.target.closest('[data-play]'))){ var v=state.videos.find(function(x){return x.id===t.getAttribute('data-play');}); if(v) openPlayer(v); return; }
       if((t = e.target.closest('[data-del]'))){ e.stopPropagation(); deleteVideo(t.getAttribute('data-del')); return; }
       if((t = e.target.closest('[data-edit]'))){ e.stopPropagation(); openEdit(t.getAttribute('data-edit')); return; }
