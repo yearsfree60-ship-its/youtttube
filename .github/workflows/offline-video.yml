@@ -28,6 +28,7 @@ on:
         default: '360'
         type: choice
         options:
+          - '144'
           - '240'
           - '360'
           - '480'
