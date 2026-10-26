@@ -1,0 +1,127 @@
+name: Offline Study Videos
+
+# Place this file at .github/workflows/offline-video.yml in the repository.
+# Repository root must also contain: download_youtube_audio.py, download_youtube_video.py,
+# fetch_offline_media.py (the first two already exist for the transcription workflow).
+#
+# What it does: downloads the given YouTube videos as phone-friendly .mp4 files into
+# media/<videoId>.mp4 (+ media/index.json) and commits them to the repository. The library
+# site then stores the video being watched on the device (IndexedDB) and plays it locally,
+# so playback survives any network drop. Triggered from the site (admin panel / player
+# button, needs a token with "Actions: Read and write") or manually from the Actions tab.
+#
+# Secrets (optional but usually required, YouTube blocks datacenter IPs):
+# YOUTUBE_COOKIES or YOUTUBE_COOKIES_B64 (same as the transcription workflow).
+# Size note: every file is <= 90 MB (quality is lowered automatically). Keep an eye on the
+# repository size; delete old files from media/ when you no longer need them.
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_ids:
+        description: 'YouTube video ids (11 characters each), separated by spaces / commas / new lines'
+        required: true
+        type: string
+      quality:
+        description: 'Max video height (lower = smaller files)'
+        required: false
+        default: '360'
+        type: choice
+        options:
+          - '240'
+          - '360'
+          - '480'
+      force:
+        description: 'Download again even if the file already exists'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+# One run at a time so two runs never push the same files together.
+concurrency:
+  group: offline-media
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+
+    env:
+      VIDEO_IDS: ${{ github.event.inputs.video_ids }}
+      QUALITY: ${{ github.event.inputs.quality }}
+      FORCE: ${{ github.event.inputs.force }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate input
+        run: |
+          if [[ -z "${VIDEO_IDS//[[:space:],;]/}" ]]; then
+            echo "::error::video_ids is empty."
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ffmpeg
+        timeout-minutes: 12
+        run: |
+          command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null && { echo "ffmpeg already installed."; exit 0; }
+          export DEBIAN_FRONTEND=noninteractive
+          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Dpkg::Lock::Timeout=60"
+          for i in 1 2 3; do
+            if timeout -k 10 60 sudo apt-get $APT update -qq \
+               && timeout -k 10 150 sudo apt-get $APT install -y -qq --no-install-recommends ffmpeg; then
+              exit 0
+            fi
+            echo "::warning::apt attempt $i failed or hung; retrying..."
+            sudo dpkg --configure -a || true
+            sleep 5
+          done
+          echo "::error::Could not install ffmpeg after 3 attempts."
+          exit 1
+
+      # "[default]" brings the yt-dlp-ejs challenge solver; it needs a JS runtime (Deno).
+      - name: Install yt-dlp and Deno
+        run: |
+          pip install -U "yt-dlp[default]"
+          curl -fsSL https://deno.land/install.sh | sh
+          echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
+          "$HOME/.deno/bin/deno" --version
+          yt-dlp --version
+
+      - name: Download videos into media/
+        env:
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+          YOUTUBE_COOKIES_B64: ${{ secrets.YOUTUBE_COOKIES_B64 }}
+          YOUTUBE_MAX_MINUTES: '240'
+        run: python fetch_offline_media.py
+
+      - name: Commit and push media
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add media
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit."
+            exit 0
+          fi
+          git commit -m "media: offline study videos"
+          for i in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "::warning::push attempt $i failed; rebasing and retrying..."
+            git pull --rebase origin "$GITHUB_REF_NAME" || true
+            sleep $((i * 3))
+          done
+          echo "::error::Could not push the media files."
+          exit 1
