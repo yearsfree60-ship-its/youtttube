@@ -6,7 +6,7 @@ Usage (run from the repository root by .github/workflows/offline-video.yml):
 
 Environment:
     VIDEO_IDS     space / comma / newline separated YouTube video ids (11 chars each)
-    QUALITY       max height: 240 | 360 | 480            (default 360)
+    QUALITY       max height: 144 | 240 | 360 | 480            (default 360)
     FORCE         "true" = download again even if media/<id>.mp4 already exists
     YOUTUBE_COOKIES / YOUTUBE_COOKIES_B64 / YOUTUBE_MAX_MINUTES   see download_youtube_audio.py
 
