@@ -47,10 +47,18 @@ def download_video(url, stem, cookie_path, max_minutes, height, max_mb):
             pass
 
     opts = {
-        "format": f"bv*[height<={height}]+ba/b[height<={height}]",
-        # H.264 + AAC first (plays everywhere), then the highest resolution allowed.
-        "format_sort": ["vcodec:h264", "res", "acodec:aac"],
+        # H.264 + AAC (m4a) صراحةً أولاً (يعمل على كل هاتف/متصفح)، ثم بدائل بصوت دائماً.
+        # لا نقبل أبداً صيغة فيديو فقط: كل بديل يتضمن صوتاً (ba) أو صيغة مدمجة (b).
+        "format": (
+            f"bv*[height<={height}][vcodec^=avc1]+ba[acodec^=mp4a]"
+            f"/bv*[height<={height}][vcodec^=avc1]+ba"
+            f"/b[height<={height}][vcodec^=avc1][acodec^=mp4a]"
+            f"/bv*[height<={height}]+ba"
+            f"/b[height<={height}]"
+        ),
+        "format_sort": [f"res:{height}", "vcodec:h264", "acodec:aac"],
         "merge_output_format": "mp4",
+        "postprocessor_args": {"merger": ["-movflags", "+faststart"]},
         "outtmpl": {"default": f"{stem}.%(ext)s"},
         "noplaylist": True,
         "restrictfilenames": True,
@@ -84,6 +92,15 @@ def download_video(url, stem, cookie_path, max_minutes, height, max_mb):
             f"No .mp4 was produced (the file may exceed {max_mb:.0f} MB; pick a lower quality).",
             retryable=False,
         )
+    try:
+        import subprocess
+        has_audio = bool(subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
+             "-of", "csv=p=0", path], capture_output=True, text=True, timeout=60).stdout.strip())
+        if not has_audio:
+            print("WARNING: the downloaded file has NO audio track (it will be repaired by the caller).")
+    except Exception:
+        pass
     actual = base.probe_duration(path)
     if duration and actual is not None and abs(actual - duration) > max(5.0, 0.02 * duration):
         os.remove(path)
