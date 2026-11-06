@@ -6,23 +6,28 @@ Usage (run from the repository root by .github/workflows/offline-video.yml):
 
 Environment:
     VIDEO_IDS     space / comma / newline separated YouTube video ids (11 chars each)
-    QUALITY       max height: 144 | 240 | 360 | 480            (default 360)
+    QUALITY       max height: 144 | 240 | 360 | 480 | 720           (default 360)
     FORCE         "true" = download again even if media/<id>.mp4 already exists
     YOUTUBE_COOKIES / YOUTUBE_COOKIES_B64 / YOUTUBE_MAX_MINUTES   see download_youtube_audio.py
 
 Output:
-    media/<videoId>.mp4     one phone-friendly H.264/AAC file per video (<= 90 MB each,
+    media/<videoId>.mp4     (or media/<videoId>.p1.mp4, .p2.mp4 ... when longer than the cap: split into parts)
+                            one phone-friendly H.264/AAC file per video (<= 97 MB each,
                             the height is lowered automatically when a file would be bigger)
-    media/index.json        {"<videoId>": {"s": bytes, "h": height, "d": seconds, "t": unix_time}}
+    media/index.json        {"<videoId>": {"s": bytes, "h": height, "q": requested_height, "d": seconds, "t": unix_time}
+                            split videos also have "n": parts, "ps": [part bytes], "pd": [part seconds]}
 
 The site reads media/index.json from raw.githubusercontent.com, downloads the file of the
 video being watched into IndexedDB and then plays it from the device, so playback no longer
 depends on the network.
 """
 
+import glob
 import json
+import math
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -32,8 +37,9 @@ import download_youtube_video as dv
 MEDIA_DIR = "media"
 INDEX_PATH = os.path.join(MEDIA_DIR, "index.json")
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
-HEIGHTS = (480, 360, 240, 144)
-MAX_FILE_MB = 90.0      # GitHub rejects files over 100 MB
+HEIGHTS = (720, 480, 360, 240, 144)
+MAX_SRC_MB = 1500.0     # حد تنزيل المصدر (يُقسَّم لاحقاً إلى أجزاء)
+MAX_FILE_MB = 97.0      # GitHub يرفض أي ملف فوق 100 MB (حد صارم لا يمكن رفعه)
 MAX_RUN_MB = 1200.0     # keep one push comfortably under GitHub's limits
 
 
@@ -67,6 +73,140 @@ def parse_ids(raw):
     return out, bad
 
 
+def probe(path):
+    """Returns {"v": codec|None, "a": codec|None, "d": seconds} using ffprobe ({} on failure)."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name:format=duration",
+             "-of", "json", path], capture_output=True, text=True, timeout=120).stdout
+        data = json.loads(out or "{}")
+    except Exception:
+        return {}
+    res = {"v": None, "a": None, "d": 0.0}
+    for st in data.get("streams", []):
+        if st.get("codec_type") == "video" and not res["v"]:
+            res["v"] = st.get("codec_name")
+        elif st.get("codec_type") == "audio" and not res["a"]:
+            res["a"] = st.get("codec_name")
+    try:
+        res["d"] = float((data.get("format") or {}).get("duration") or 0)
+    except ValueError:
+        pass
+    return res
+
+
+def is_valid(path):
+    """Playable everywhere: H.264 video + AAC audio."""
+    if not os.path.exists(path) or os.path.getsize(path) < 1024:
+        return False
+    p = probe(path)
+    return p.get("v") == "h264" and p.get("a") == "aac"
+
+
+def fetch_audio(url, vid, cookie_path):
+    """Separate AAC audio download (used when the video file came without any audio track)."""
+    stem = f"tmpaud_{vid}"
+    for f in os.listdir("."):
+        if f.startswith(stem):
+            os.remove(f)
+    cmd = ["yt-dlp", "-f", "ba[acodec^=mp4a]/ba", "--no-playlist", "--retries", "5",
+           "-o", stem + ".%(ext)s", url]
+    if cookie_path:
+        cmd[1:1] = ["--cookies", cookie_path]
+    subprocess.run(cmd, check=True, timeout=3600)
+    for f in os.listdir("."):
+        if f.startswith(stem):
+            return f
+    raise base.UserFacingError("no audio stream", retryable=True)
+
+
+def normalize(path, vid, url, cookie_path, height):
+    """Makes the file universally playable: H.264 + AAC, faststart, with sound. Raises if no audio."""
+    p = probe(path)
+    if not p.get("v"):
+        raise base.UserFacingError("corrupt video", retryable=True)
+    aud = None
+    if not p.get("a"):
+        print(f"  {vid}: no audio track, fetching audio separately...")
+        aud = fetch_audio(url, vid, cookie_path)
+    out = f"tmpnorm_{vid}.mp4"
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", path]
+    if aud:
+        cmd += ["-i", aud, "-map", "0:v:0", "-map", "1:a:0"]
+    else:
+        cmd += ["-map", "0:v:0", "-map", "0:a:0"]
+    if p.get("v") == "h264":
+        cmd += ["-c:v", "copy"]
+    else:  # VP9 / AV1 inside mp4 do not play on many phones/browsers
+        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p",
+                "-vf", f"scale=-2:'min({height},ih)'"]
+    if p.get("a") == "aac" and not aud:
+        cmd += ["-c:a", "copy"]
+    else:  # Opus/other audio inside mp4 plays silently on many devices
+        cmd += ["-c:a", "aac", "-b:a", "96k", "-ac", "2", "-ar", "44100"]
+    cmd += ["-movflags", "+faststart", "-shortest", out]
+    try:
+        subprocess.run(cmd, check=True, timeout=7200)
+    finally:
+        if aud and os.path.exists(aud):
+            os.remove(aud)
+    if not is_valid(out):
+        if os.path.exists(out):
+            os.remove(out)
+        raise base.UserFacingError("no audio after processing", retryable=True)
+    os.replace(out, path)
+    return path
+
+
+def clear_media(vid):
+    """Deletes any previous single file and parts of this video."""
+    for f in [os.path.join(MEDIA_DIR, f"{vid}.mp4")] + glob.glob(os.path.join(MEDIA_DIR, f"{vid}.p*.mp4")):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+
+
+def split_parts(path, vid, duration):
+    """Splits an oversized mp4 (no re-encoding) into independent parts, each below MAX_FILE_MB.
+    Returns ([sizes], [durations]); the files are written to media/<id>.p<N>.mp4."""
+    limit = MAX_FILE_MB * 1_048_576
+    size = os.path.getsize(path)
+    duration = duration or probe(path).get("d") or 1.0
+    n = max(2, math.ceil(size / (limit * 0.85)))
+    pattern = f"tmpseg_{vid}_%02d.mp4"
+    for _ in range(8):
+        for f in glob.glob(f"tmpseg_{vid}_*.mp4"):
+            os.remove(f)
+        seg = max(20.0, duration / n)
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", path, "-map", "0", "-c", "copy",
+                        "-f", "segment", "-segment_time", f"{seg:.2f}", "-reset_timestamps", "1",
+                        "-segment_format", "mp4", "-segment_format_options", "movflags=+faststart",
+                        pattern], check=True, timeout=7200)
+        files = sorted(glob.glob(f"tmpseg_{vid}_*.mp4"))
+        if files and all(os.path.getsize(f) <= limit and is_valid(f) for f in files):
+            break
+        n = int(n * 1.3) + 1
+    else:
+        raise base.UserFacingError("could not split below the size cap", retryable=False)
+    clear_media(vid)
+    sizes, durs = [], []
+    for i, f in enumerate(files, 1):
+        sizes.append(os.path.getsize(f))
+        durs.append(round(probe(f).get("d") or 0, 2))
+        os.replace(f, os.path.join(MEDIA_DIR, f"{vid}.p{i}.mp4"))
+    os.remove(path)
+    return sizes, durs
+
+
+def entry_ok(vid, ent):
+    """True when the stored file(s) of this video exist and are playable (H.264 + AAC)."""
+    n = int(ent.get("n") or 1)
+    if n <= 1:
+        return is_valid(os.path.join(MEDIA_DIR, f"{vid}.mp4"))
+    return all(is_valid(os.path.join(MEDIA_DIR, f"{vid}.p{i}.mp4")) for i in range(1, n + 1))
+
+
 def fetch_one(vid, cookie_path, height, max_minutes):
     """Returns (path, duration, height_used). Lowers the height when the file is too big."""
     url = f"https://www.youtube.com/watch?v={vid}"
@@ -77,10 +217,8 @@ def fetch_one(vid, cookie_path, height, max_minutes):
         too_big = False
         for attempt in range(1, base.ATTEMPTS + 1):
             try:
-                path, actual = dv.download_video(url, stem, cookie_path, max_minutes, h, MAX_FILE_MB)
-                if os.path.getsize(path) > MAX_FILE_MB * 1_048_576:
-                    os.remove(path)
-                    raise base.UserFacingError("too big", retryable=False)
+                path, actual = dv.download_video(url, stem, cookie_path, max_minutes, h, MAX_SRC_MB)
+                path = normalize(path, vid, url, cookie_path, h)
                 return path, actual, h
             except base.UserFacingError as e:
                 last, retryable = str(e), e.retryable
@@ -123,7 +261,9 @@ def main():
     try:
         for n, vid in enumerate(ids, 1):
             dest = os.path.join(MEDIA_DIR, f"{vid}.mp4")
-            if not force and vid in idx and os.path.exists(dest):
+            prev = idx.get(vid) or {}
+            same_q = int(prev.get("q") or prev.get("h") or 0) == height
+            if not force and vid in idx and same_q and entry_ok(vid, prev):
                 skipped.append(vid)
                 continue
             if run_mb >= MAX_RUN_MB:
@@ -137,12 +277,26 @@ def main():
                 print(f"::warning::{vid}: {e}")
                 continue
             size = os.path.getsize(path)
-            os.replace(path, dest)
+            ent = {"h": h, "q": height, "d": int(round(actual or 0)), "t": int(time.time())}
+            if size > MAX_FILE_MB * 1_048_576:
+                try:
+                    sizes, durs = split_parts(path, vid, actual)
+                except Exception as e:
+                    failed.append((vid, f"split failed: {e}"))
+                    print(f"::warning::{vid}: split failed: {e}")
+                    continue
+                ent.update({"s": sum(sizes), "n": len(sizes), "ps": sizes, "pd": durs})
+                size = sum(sizes)
+                print(f"  saved {len(sizes)} parts ({size / 1_048_576:.1f} MB, {h}p)")
+            else:
+                clear_media(vid)
+                os.replace(path, dest)
+                ent["s"] = size
+                print(f"  saved {dest} ({size / 1_048_576:.1f} MB, {h}p)")
             run_mb += size / 1_048_576
-            idx[vid] = {"s": size, "h": h, "d": int(round(actual or 0)), "t": int(time.time())}
+            idx[vid] = ent
             save_index(idx)
             ok.append(vid)
-            print(f"  saved {dest} ({size / 1_048_576:.1f} MB, {h}p)")
     finally:
         if cookie_path:
             try:
