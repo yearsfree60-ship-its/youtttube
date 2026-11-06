@@ -32,6 +32,7 @@ on:
           - '240'
           - '360'
           - '480'
+          - '720'
       force:
         description: 'Download again even if the file already exists'
         required: false
