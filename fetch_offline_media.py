@@ -158,6 +158,52 @@ def normalize(path, vid, url, cookie_path, height):
     return path
 
 
+def has_faststart(path):
+    """True when the 'moov' atom precedes 'mdat' (playback starts without downloading the whole file)."""
+    try:
+        with open(path, "rb") as f:
+            pos, end = 0, os.path.getsize(path)
+            while pos + 8 <= end:
+                f.seek(pos)
+                hdr = f.read(16)
+                size = int.from_bytes(hdr[:4], "big")
+                typ = hdr[4:8]
+                if typ == b"moov":
+                    return True
+                if typ == b"mdat":
+                    return False
+                if size == 1:
+                    size = int.from_bytes(hdr[8:16], "big")
+                if size < 8:
+                    return False
+                pos += size
+    except Exception:
+        return True
+    return False
+
+
+def repair_faststart():
+    """One-time maintenance: remux (copy, no re-encoding) any older media file whose moov atom is at the end."""
+    fixed = []
+    for f in sorted(glob.glob(os.path.join(MEDIA_DIR, "*.mp4"))):
+        if has_faststart(f):
+            continue
+        tmp = f + ".fs.tmp.mp4"
+        try:
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", f, "-map", "0", "-c", "copy",
+                            "-movflags", "+faststart", tmp], check=True, timeout=1800)
+            if is_valid(tmp):
+                os.replace(tmp, f)
+                fixed.append(os.path.basename(f))
+                print(f"  faststart repaired: {os.path.basename(f)}")
+        except Exception as e:
+            print(f"::warning::faststart repair failed for {f}: {e}")
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+    return fixed
+
+
 def clear_media(vid):
     """Deletes any previous single file and parts of this video."""
     for f in [os.path.join(MEDIA_DIR, f"{vid}.mp4")] + glob.glob(os.path.join(MEDIA_DIR, f"{vid}.p*.mp4")):
@@ -255,6 +301,14 @@ def main():
     os.makedirs(MEDIA_DIR, exist_ok=True)
     idx = load_index()
     ok, skipped, failed, deferred = [], [], [], []
+    fixed = repair_faststart()   # صيانة: إصلاح الملفات القديمة التي لا تبدأ بسرعة (بدون إعادة ترميز)
+    if fixed:
+        for name in fixed:
+            ent = idx.get(name.split(".")[0])
+            if ent:
+                ent["t"] = int(time.time())   # يغيّر رابط التشغيل فلا يستخدم المتصفح النسخة القديمة
+        save_index(idx)
+        print(f"faststart repaired for {len(fixed)} file(s)")
     run_mb = 0.0
 
     cookie_path = base.write_cookie_file(base.load_cookie_text())
